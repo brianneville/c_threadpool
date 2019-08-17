@@ -35,33 +35,48 @@ typedef struct FuncArgs{
 typedef void (*function_ptr)(void* args);
 typedef struct QueueObj{
 	function_ptr func;
+	void* args;
 }QueueObj;
-
-
 
 void init_pool(Pool* pool_inst);
 void* pull_from_queue(void* arg);
-void push_to_queue( function_ptr f, void* args);
+void push_to_queue(Pool* pool_inst, function_ptr f, void* args);
 
 void* pull_from_queue(void* arg){
 	Args* args = (Args*)arg;
 	printf("Thread has started pulling from queue, with id = %d\n", args->thread_id);
+	
+	//printf("head of queue is %p\n",args->parent_pool->queue.head->data );
+
+	//pop node from queue
+	xNode* queue_item = pop_node_queue(&(args->parent_pool->queue));
+	if(queue_item){
+		QueueObj* q_obj;
+		q_obj = (QueueObj*)queue_item->data;
+		function_ptr f = q_obj->func;
+		void* args = q_obj->args;
+		(*f)(args);
+	}
+	
+	
 }
 
-void push_to_queue(function_ptr f, void* args){
+void push_to_queue(Pool* pool_inst, function_ptr f, void* args){
 	//this function is will be used to store a pointer to a function in a queue
 	//pointers must point to function of type void, which takes in a void*
+	
 	QueueObj* insert = (QueueObj*)malloc(sizeof(QueueObj));
 	insert->func =f;
-	// call this function with: (*insert->func)();
-	(*insert->func)(args);
+	insert->args = args;  //this function can be called with:(*insert->func)(insert->args);
+	add_node((void*)insert ,&(pool_inst->queue));		//push into pool queue 
+
 }
 
 void init_pool(Pool* pool_inst){
 	// this function initialises a threadpool pointer;
 	
 	//initialise the linkedlist queue used to push arguemnts into the pool
-	pool_inst->queue.tail = NULL;
+	init_xLinkedList(&(pool_inst->queue));
 	
 	//initialise the mutex that the main thread will use to guard items being pulled from this queue
 	pthread_mutex_init(&(pool_inst->queue_guard_mtx), NULL);
@@ -84,7 +99,7 @@ void init_pool(Pool* pool_inst){
 		printf("created thread id = %lu\n", i);
 		new_args->parent_pool = pool_inst;
 		
-		int x = pthread_create(thr_p, NULL, pull_from_queue, (void *)(new_args));	// create
+		//int x = pthread_create(thr_p, NULL, pull_from_queue, (void *)(new_args));	// create
 		
 		//advance pointers
 		cond_p += sizeof(pthread_cond_t);
@@ -94,7 +109,7 @@ void init_pool(Pool* pool_inst){
 	//join threads ( for testing purposes)
 	thr_p -= pool_inst->pool_size* sizeof(pthread_t);
 	for(i=0; i < pool_inst->pool_size; i++){		
-		pthread_join((*thr_p), NULL);
+		//pthread_join((*thr_p), NULL);
 		thr_p += sizeof(pthread_t);
 	}
 

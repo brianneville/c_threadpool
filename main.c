@@ -19,12 +19,19 @@ int main(){
 	init_pool(&threadpool);
 
 	int args = 3;
-	
 	printf("input to queue is %p with contents %d\n",&args, args);
+	push_to_queue(&threadpool, test_func, (void*)(&args));
 	
-	push_to_queue(test_func, (void*)(&args));
+	Args* new_args = (Args*)malloc(sizeof(Args));		//struct for args
+	new_args->thread_id = (int)7;
+	printf("created thread id = %d\n", 7);
+	new_args->parent_pool = &threadpool;	
 	
-	printf("output is %p with contents %d\n",&args, args);
+	pull_from_queue((void *)(new_args));
 
+	printf("output is %p with contents %d\n",&args, args);
+	
+
+	
 	return 0;
 }
