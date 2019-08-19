@@ -23,8 +23,12 @@ typedef struct Pool{
 								//inserted into the queue.
 								//(prevents issue where thread could finish work before next function has been added to queue,
 								// while exit_on_empty_queue is set to 1. this would cause premature exit).	
-	long remaining_work;
-	int living_threads;
+	
+	long remaining_work;		//used to check if the queue is empty. empty queue implies all functions are working or finished
+	int living_threads;			//used to track if all threads have exited
+	pthread_cond_t block_main; 		//used to block main thread while other threads execute
+	pthread_mutex_t mtx_spare;		//spare, useless mutex for the condition variable (semaphores had reliability issues)
+	
 }Pool;
 
 
@@ -70,8 +74,7 @@ void* pull_from_queue(void* arg){
 		queue_item = pop_node_queue(&(pool_inst->queue));
 		printf("thread %d has been woken, ", thread_id);
 		if (queue_item)printf("thread has recieved queue item:\n");
-		
-		
+				
 		pthread_mutex_unlock(&(pool_inst->queue_guard_mtx));
 
 		if(queue_item){
@@ -83,12 +86,19 @@ void* pull_from_queue(void* arg){
 			pool_inst->remaining_work--;
 		}
 		*act = 0;
-		//break if signalled to terminate on empty queue and queue is empty
+		if (!pool_inst->remaining_work && !pool_inst->queue.tail){
+			pthread_cond_signal(&(pool_inst->block_main));
+		}		
+
+		//break if signalled to terminate on empty queue and queue is empty			
 		if (pool_inst->exit_on_empty_queue && !pool_inst->queue.tail && !pool_inst->updating_queue)break;
+
 	}
+	
 	pool_inst->living_threads--;
 	printf("exiting thread %d\n",thread_id  );
 	pthread_exit(NULL);
+	
 
 }
 
@@ -120,21 +130,23 @@ void push_to_queue(Pool* pool_inst, function_ptr f, void* args, char block){
 
 	if(block){
 		printf("\nblocking main\n");
-		while(pool_inst->remaining_work);
+		while(pool_inst->remaining_work){
+			pthread_cond_wait(&(pool_inst->block_main), &(pool_inst->mtx_spare));
+		}
+		pthread_mutex_unlock(&(pool_inst->mtx_spare));
 		printf("\nunblocking main\n");
 
 		pool_inst->updating_queue = 0;
-		if(pool_inst->exit_on_empty_queue){
-			
-			pool_inst->living_threads = pool_inst->pool_size;
-			//now signal all threads which are not active to advance them past the cond_wait() block
-			for(i =0; i < pool_inst->pool_size; i ++){
-				if(!(*(pool_inst->thread_active + i))){
-					pthread_cond_signal(pool_inst->cond_pointer + i* sizeof(pthread_cond_t));
-				}
-			}
-			while(pool_inst->living_threads);
+		pool_inst->living_threads = pool_inst->pool_size;
+		
+		//now signal all threads which are not active to advance them past the cond_wait() block
+		for(i =0; i < pool_inst->pool_size; i ++){
+			pthread_cond_signal(pool_inst->cond_pointer + i* sizeof(pthread_cond_t));
 		}
+		
+		if(pool_inst->exit_on_empty_queue)while(pool_inst->living_threads);
+
+		
 	}
 }
 
@@ -144,32 +156,31 @@ void prepare_push(Pool* pool_inst, char exit_on_empty_queue){
 }
 
 void join_pool(Pool* pool_inst){
-	//launch threads to close all current threads in the pool in parallel
-	
-	
 	pthread_t* thr_p = pool_inst->threads_pointer;
 	int i;
 	for(i=0; i < pool_inst->pool_size; i++){		
 		pthread_join((*thr_p), NULL);
 		thr_p += sizeof(pthread_t);
 	}
-	
 }
 
 void init_pool(Pool* pool_inst,  char pool_size){
 	// this function initialises a threadpool pointer;
 	pool_inst->pool_size = pool_size;
 	pool_inst->remaining_work = 0;
-	//pool_inst->exited_thread_count = 0;
 	//initialise the linkedlist queue used to push arguemnts into the pool
 	init_xLinkedList(&(pool_inst->queue));
 	
 	//initialse bool to mark whether or not the threads should terminate after the queue is empty
-	//pool_inst->exit_on_empty_queue = NULL;
 	pool_inst->updating_queue = 0;
+	
 	//initialise the mutex that the main thread will use to guard items being pulled from this queue
 	pthread_mutex_init(&(pool_inst->queue_guard_mtx), NULL);
 	
+	//initialise variables for blocking main
+	pthread_mutex_init(&(pool_inst->mtx_spare), NULL);
+	pthread_cond_init(&(pool_inst->block_main), NULL);
+
 	pool_inst->threads_pointer = (pthread_t*)malloc(pool_inst->pool_size * (sizeof(pthread_t)));
 	pool_inst->cond_pointer = (pthread_cond_t*)malloc(pool_inst->pool_size * (sizeof(pthread_cond_t)));
 	// init all threads to be marked as not running
