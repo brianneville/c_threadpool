@@ -23,9 +23,8 @@ typedef struct Pool{
 								//inserted into the queue.
 								//(prevents issue where thread could finish work before next function has been added to queue,
 								// while exit_on_empty_queue is set to 1. this would cause premature exit).	
-	char updating_queue_prev;
 	long remaining_work;
-	
+	int living_threads;
 }Pool;
 
 
@@ -41,14 +40,15 @@ typedef struct QueueObj{
 	void* args;
 }QueueObj;
 
-void init_pool(Pool* pool_inst,  char pool_size, char exit_on_empty_queue);
+void init_pool(Pool* pool_inst,  char pool_size);
 void close_pool(Pool* pool_inst);
 void* pull_from_queue(void* arg);
 void push_to_queue(Pool* pool_inst, function_ptr f, void* args, char block);
 
 void* pull_from_queue(void* arg){
 	Args* args = (Args*)arg;
-	printf("Thread has started pulling from queue, with id = %d\n", args->thread_id);
+	int thread_id = args->thread_id;
+	printf("Thread has started pulling from queue, with id = %d\n", thread_id);
 	Pool* pool_inst = args->pool_inst;
 	
 	//printf("head of queue is %p\n",args->pool_inst->queue.head->data );
@@ -58,17 +58,17 @@ void* pull_from_queue(void* arg){
 	while (1){	
 		pthread_mutex_lock(&(pool_inst->queue_guard_mtx));	
 
-		if (!pool_inst->queue.tail && !(*(pool_inst->thread_active + args->thread_id))){
+		if (!pool_inst->queue.tail && !(*(pool_inst->thread_active + thread_id))){
 			//queue is empty, go to sleep until woken by the corresponding condition variable
-			printf("thread %d is sleeping on condition var %p\n",args->thread_id, pool_inst->cond_pointer + args->thread_id * sizeof(pthread_cond_t) );
+			printf("thread %d is sleeping on condition var %p\n",thread_id, pool_inst->cond_pointer + thread_id * sizeof(pthread_cond_t) );
 
-			pthread_cond_wait((pool_inst->cond_pointer + args->thread_id * sizeof(pthread_cond_t)),
+			pthread_cond_wait((pool_inst->cond_pointer + thread_id * sizeof(pthread_cond_t)),
 				&(pool_inst->queue_guard_mtx));
 		}
-		char *act = (pool_inst->thread_active + args->thread_id);
+		char *act = (pool_inst->thread_active + thread_id);
 		*act = 1;
 		queue_item = pop_node_queue(&(pool_inst->queue));
-		printf("thread %d has been woken, ", args->thread_id);
+		printf("thread %d has been woken, ", thread_id);
 		if (queue_item)printf("thread has recieved queue item:\n");
 		
 		
@@ -86,6 +86,8 @@ void* pull_from_queue(void* arg){
 		//break if signalled to terminate on empty queue and queue is empty
 		if (pool_inst->exit_on_empty_queue && !pool_inst->queue.tail && !pool_inst->updating_queue)break;
 	}
+	pool_inst->living_threads--;
+	printf("exiting thread %d\n",thread_id  );
 	pthread_exit(NULL);
 
 }
@@ -95,11 +97,7 @@ void push_to_queue(Pool* pool_inst, function_ptr f, void* args, char block){
 	//pointers must point to function of type void, which takes in a void*
 	
 	pthread_mutex_lock(&(pool_inst->queue_guard_mtx));		// lock mutex to access queue
-	
-	if(pool_inst->updating_queue ^ pool_inst->updating_queue_prev){
-		pool_inst->updating_queue_prev = pool_inst->updating_queue;
-		// if this is true then the user has just changed the value 
-	}
+
 	pool_inst->remaining_work++;
 	
 	QueueObj* insert = (QueueObj*)malloc(sizeof(QueueObj));
@@ -118,18 +116,31 @@ void push_to_queue(Pool* pool_inst, function_ptr f, void* args, char block){
 				break;
 		}
 	}
-	
+	printf("finished pushing\n");
+
 	if(block){
+		printf("\nblocking main\n");
 		while(pool_inst->remaining_work);
-		
-		//now signal all threads which are not active to advance them past the cond_wait() block
-		for(i =0; i < pool_inst->pool_size; i ++){
-			if(!(*(pool_inst->thread_active + i))){
-				pthread_cond_signal(pool_inst->cond_pointer + i* sizeof(pthread_cond_t));
+		printf("\nunblocking main\n");
+
+		pool_inst->updating_queue = 0;
+		if(pool_inst->exit_on_empty_queue){
+			
+			pool_inst->living_threads = pool_inst->pool_size;
+			//now signal all threads which are not active to advance them past the cond_wait() block
+			for(i =0; i < pool_inst->pool_size; i ++){
+				if(!(*(pool_inst->thread_active + i))){
+					pthread_cond_signal(pool_inst->cond_pointer + i* sizeof(pthread_cond_t));
+				}
+			}
+			while(pool_inst->living_threads);
 		}
 	}
-	}
-	printf("finished pushing\n");
+}
+
+void prepare_push(Pool* pool_inst, char exit_on_empty_queue){
+	pool_inst->exit_on_empty_queue = exit_on_empty_queue;
+	pool_inst->updating_queue = 1;
 }
 
 void join_pool(Pool* pool_inst){
@@ -145,7 +156,7 @@ void join_pool(Pool* pool_inst){
 	
 }
 
-void init_pool(Pool* pool_inst,  char pool_size, char exit_on_empty_queue){
+void init_pool(Pool* pool_inst,  char pool_size){
 	// this function initialises a threadpool pointer;
 	pool_inst->pool_size = pool_size;
 	pool_inst->remaining_work = 0;
@@ -154,9 +165,8 @@ void init_pool(Pool* pool_inst,  char pool_size, char exit_on_empty_queue){
 	init_xLinkedList(&(pool_inst->queue));
 	
 	//initialse bool to mark whether or not the threads should terminate after the queue is empty
-	pool_inst->exit_on_empty_queue = exit_on_empty_queue;
+	//pool_inst->exit_on_empty_queue = NULL;
 	pool_inst->updating_queue = 0;
-	pool_inst->updating_queue_prev = 0;
 	//initialise the mutex that the main thread will use to guard items being pulled from this queue
 	pthread_mutex_init(&(pool_inst->queue_guard_mtx), NULL);
 	
