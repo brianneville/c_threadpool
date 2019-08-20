@@ -17,7 +17,7 @@ Standard protocol would be:
  1. initialise a threadpool
  2. prepare threadpool before pushing anything
  3. push functions
- 4. repeat if threadpool is not set to exit
+ 4. repeat steps 2 and 3 if threadpool is not set to exit
  5. cleanup threadpool
 ```
 
