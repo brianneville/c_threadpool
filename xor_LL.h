@@ -52,9 +52,9 @@ void add_node(void* data, xLinkedList* list){
 	list->tail = new_xNode;	
 }
 
-void traverse_list(xNode* tail){
+void traverse_list(xLinkedList* list){
 	//start at tail and traverse in reverse
-	xNode* curr = tail;
+	xNode* curr = list->tail;
 	xNode* next;
 	xNode* prev = NULL;
 	printf("Traversing list in reverse\n");
@@ -141,5 +141,11 @@ xNode* pop_node_queue(xLinkedList* list){
 	return temp;	
 }
 
+void reverse(xLinkedList* list){
+	xNode* temp; 
+	temp = list->head;
+	list->head = list->tail;
+	list->tail = temp;
+}
 
 #endif

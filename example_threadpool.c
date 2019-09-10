@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 #include "c_threadpool.h"
 
 
@@ -32,7 +33,7 @@ int main(){
 	push_to_queue(threadpool, test_func, (void*)(&args), 1);	//block = 1 on final push call
 	
 	printf("args is now %d\n", args);
-	sleep(30);
+		
 	prepare_push(threadpool, 0);	//exit_on_empty_queue = 0
 	push_to_queue(threadpool, test_func, (void*)(&args), 0);
 	push_to_queue(threadpool, test_func, (void*)(&args), 0);
