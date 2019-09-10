@@ -64,7 +64,10 @@ void* pull_from_queue(void* arg){
 	while (1){	
 		pthread_mutex_lock(&(pool->queue_guard_mtx));	
 
-		if (!pool->queue.tail & !&(*(pool->thread_active + thread_id))){
+		if (!pool->queue.tail & !&(*(pool->thread_active + thread_id))){					///	WHAT HAVE I DONE HERE!!!!! 
+			// THIS WAS ACCIDENTAL (meant to write && !(...)) 
+			// i have been trying for ages to get this to work - is there apparently some case where this evaluates to 0 ??
+			// why does this hacky mistake even work?
 			//queue is empty, go to sleep until woken by the corresponding condition variable
 			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
 			*act = 0;
