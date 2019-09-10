@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "c_threadpool.h"
 #include "xor_LL.h"
 
@@ -137,6 +138,7 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 			pthread_cond_wait(&(pool->block_main), &(pool->mtx_spare));
 		}
 		pthread_mutex_unlock(&(pool->mtx_spare));
+		pthread_mutex_lock(&(pool->queue_guard_mtx));
 		if(DEBUG_C_THREADPOOL)printf("unblocking main\n\n");
 
 		pool->updating_queue = 0;
@@ -144,7 +146,11 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		
 		//now signal all threads which are not active to advance them past the cond_wait() block
 		for(i =0; i < pool->pool_size; i ++){
+			pthread_mutex_unlock(&(pool->queue_guard_mtx));
 			pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
+			sleep(1);
+			pthread_mutex_lock(&(pool->queue_guard_mtx));
+			if(DEBUG_C_THREADPOOL)printf("main thread has gaurd mtx after signalling %d\n", i);
 		}
 		//wait for threads to exit if needed
 		if(pool->exit_on_empty_queue)while(pool->living_threads);
@@ -156,6 +162,7 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 void prepare_push(Pool* pool, char exit_on_empty_queue){
 	pool->exit_on_empty_queue = exit_on_empty_queue;
 	pool->updating_queue = 1;
+	pthread_mutex_unlock(&(pool->queue_guard_mtx));
 }
 
 void init_pool(Pool* pool,  char pool_size){
