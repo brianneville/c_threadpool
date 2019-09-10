@@ -58,20 +58,20 @@ void* pull_from_queue(void* arg){
 	Args* args = (Args*)arg;
 	int thread_id = args->thread_id;
 	Pool* pool = args->pool;
-	
+	char *act = (pool->thread_active + thread_id);
 	//pop node from queue
 	xNode* queue_item;
 	while (1){	
 		pthread_mutex_lock(&(pool->queue_guard_mtx));	
 
-		if (!pool->queue.tail && !(*(pool->thread_active + thread_id))){
+		if (!pool->queue.tail & !&(*(pool->thread_active + thread_id))){
 			//queue is empty, go to sleep until woken by the corresponding condition variable
 			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
-
+			*act = 0;
 			pthread_cond_wait((pool->cond_pointer + thread_id * sizeof(pthread_cond_t)),
 				&(pool->queue_guard_mtx));
-		}
-		char *act = (pool->thread_active + thread_id);
+		}	
+
 		*act = 1;
 		queue_item = pop_node_queue(&(pool->queue));
 		pthread_mutex_unlock(&(pool->queue_guard_mtx));
@@ -87,7 +87,6 @@ void* pull_from_queue(void* arg){
 			free(q_obj);
 			pool->remaining_work--;
 		}
-		*act = 0;
 		if (!pool->remaining_work && !pool->queue.tail){
 			//if all work from other threads has been done
 			pthread_cond_signal(&(pool->block_main));
