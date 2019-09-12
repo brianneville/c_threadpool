@@ -8,8 +8,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
+#include <unistd.h>
 #include "c_threadpool.h"
 #include "xor_LL.h"
+
 
 typedef struct Pool{
 	int pool_size;
@@ -62,20 +64,31 @@ void* pull_from_queue(void* arg){
 	//pop node from queue
 	xNode* queue_item;
 	while (1){	
-		pthread_mutex_lock(&(pool->queue_guard_mtx));	
-
-		if (!pool->queue.tail & !&(*(pool->thread_active + thread_id))){					///	WHAT HAVE I DONE HERE!!!!! 
-			// THIS WAS ACCIDENTAL (meant to write && !(...)) 
-			// i have been trying for ages to get this to work - is there apparently some case where this evaluates to 0 ??
-			// why does this hacky mistake even work?
+		if(DEBUG_C_THREADPOOL)printf("looping %d\n", thread_id);
+		/*
+		if (!pool->queue.tail && !(*(pool->thread_active + thread_id))){
+			
 			//queue is empty, go to sleep until woken by the corresponding condition variable
 			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
-			*act = 0;
 			pthread_cond_wait((pool->cond_pointer + thread_id * sizeof(pthread_cond_t)),
 				&(pool->queue_guard_mtx));
 		}	
-
-		*act = 1;
+		*/
+		pthread_mutex_lock(&(pool->queue_guard_mtx));
+		if (!pool->queue.tail && !(*(pool->thread_active + thread_id))){
+			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
+				if (!pool->remaining_work && !pool->queue.tail){
+					//if all work from other threads has been done
+					int x = pthread_cond_signal(&(pool->block_main));
+					if(DEBUG_C_THREADPOOL)printf("here %d would signal main\n", thread_id);
+				}
+			pthread_cond_wait((pool->cond_pointer + thread_id * sizeof(pthread_cond_t)),
+					&(pool->queue_guard_mtx));
+				//initial thread that unblocks main will exit properly
+				// this goto stops other threads from sleeping, and brings them to the end of the
+				//while loop when main is calling to kill them
+		}
+		
 		queue_item = pop_node_queue(&(pool->queue));
 		pthread_mutex_unlock(&(pool->queue_guard_mtx));
 
@@ -89,17 +102,12 @@ void* pull_from_queue(void* arg){
 			if(DEBUG_C_THREADPOOL)printf("thread %d has finished working\n",thread_id);
 			free(q_obj);
 			pool->remaining_work--;
+			*act = 0;
 		}
-		if (!pool->remaining_work && !pool->queue.tail){
-			//if all work from other threads has been done
-			pthread_cond_signal(&(pool->block_main));
-		}		
-
 		//break if signalled to terminate on empty queue and queue is empty			
 		if (pool->exit_on_empty_queue && !pool->queue.tail && !pool->updating_queue)break;
 
 	}
-	
 	pool->living_threads--;
 	if(DEBUG_C_THREADPOOL)printf("\033[1;31mExiting thread %d \033[0m\n",thread_id  );
 	pthread_exit(NULL);
@@ -127,6 +135,7 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 	for(i =0; i < pool->pool_size; i ++){
 		if(!(*(pool->thread_active + i))){
 			//if thread is not active then wake it to pull from queue
+				*(pool->thread_active + i) = 1;
 				pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
 				break;
 		}
@@ -135,23 +144,28 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 
 	if(block){
 		if(DEBUG_C_THREADPOOL)printf("\nblocking main\n");
-		while(pool->remaining_work){
+		while(pool->remaining_work ){
 			pthread_cond_wait(&(pool->block_main), &(pool->mtx_spare));
 		}
+		
 		pthread_mutex_unlock(&(pool->mtx_spare));
 		if(DEBUG_C_THREADPOOL)printf("unblocking main\n\n");
-
+		
 		pool->updating_queue = 0;
 		pool->living_threads = pool->pool_size;
 		
 		//now signal all threads which are not active to advance them past the cond_wait() block
-		for(i =0; i < pool->pool_size; i ++){
-			pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
+		if(pool->exit_on_empty_queue){
+			pthread_mutex_lock(&(pool->queue_guard_mtx));	//this will block until the last thread has gone to sleep
+			pthread_mutex_unlock(&(pool->queue_guard_mtx));	//unlock mutex again so that other threads can progress
+			for(i =0; i < pool->pool_size; i ++){
+				*(pool->thread_active + i) = 1;
+				pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
+				}
+			//wait for threads to exit if needed
+			while(pool->living_threads);
 		}
-		//wait for threads to exit if needed
-		if(pool->exit_on_empty_queue)while(pool->living_threads);
-
-		
+				
 	}
 }
 
@@ -160,7 +174,7 @@ void prepare_push(Pool* pool, char exit_on_empty_queue){
 	pool->updating_queue = 1;
 }
 
-void init_pool(Pool* pool,  char pool_size){
+void init_pool(Pool* pool,  char pool_size){	
 	// this function initialises a threadpool pointer;
 	pool->pool_size = pool_size;
 	pool->remaining_work = 0;
