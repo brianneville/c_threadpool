@@ -7,17 +7,15 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 #include "c_threadpool.h"
 #include "xor_LL.h"
 
-pthread_cond_t spare_cond = PTHREAD_COND_INITIALIZER;
-pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-
 typedef struct Pool{
 	int pool_size;
 	pthread_t* threads_pointer;		// used to iterate through threads
-	pthread_cond_t* cond_pointer;	// used to iterate through corresponding cond variables
+	//pthread_cond_t* cond_pointer;	// used to iterate through corresponding cond variables
 	char* thread_active;			// booleans marked as true if the thread is running
 	
 	xLinkedList queue; 				// queue used to push items into the pool
@@ -35,8 +33,7 @@ typedef struct Pool{
 	pthread_cond_t block_main; 		//used to block main thread while other threads execute
 	pthread_mutex_t mtx_spare;		//spare, useless mutex for the condition variable (semaphores had reliability issues)
 
-	//trial fixing stuff
-
+	pthread_cond_t hold_threads;	//this condition variable makes threads sleep when finished working in an empty queue
 	
 }Pool;
 
@@ -68,30 +65,16 @@ void* pull_from_queue(void* arg){
 	//pop node from queue
 	xNode* queue_item;
 	while (1){	
-		if(DEBUG_C_THREADPOOL)printf("looping %d\n", thread_id);
-		/*
-		if (!pool->queue.tail && !(*(pool->thread_active + thread_id))){
-			
-			//queue is empty, go to sleep until woken by the corresponding condition variable
-			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
-			pthread_cond_wait((pool->cond_pointer + thread_id * sizeof(pthread_cond_t)),
-				&(pool->queue_guard_mtx));
-		}	
-		*/
+
 		pthread_mutex_lock(&(pool->queue_guard_mtx));
-		if (!pool->queue.tail && !(*act)){
+		while (!pool->queue.tail && !(*act)){
 			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
 				if (!pool->remaining_work && !pool->queue.tail){
 					//if all work from other threads has been done
-					int x = pthread_cond_signal(&(pool->block_main));
-					if(DEBUG_C_THREADPOOL)printf("here %d would signal main\n", thread_id);
-				}//(pool->cond_pointer + thread_id * sizeof(pthread_cond_t)
-			pthread_cond_wait(&spare_cond,
-					&(pool->queue_guard_mtx));
+					pthread_cond_signal(&(pool->block_main));
+				}
+			pthread_cond_wait(&pool->hold_threads, &(pool->queue_guard_mtx));
 
-				//initial thread that unblocks main will exit properly
-				// this goto stops other threads from sleeping, and brings them to the end of the
-				//while loop when main is calling to kill them
 		}
 		
 		queue_item = pop_node_queue(&(pool->queue));
@@ -132,26 +115,19 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 	insert->func =f;
 	insert->args = args;  //this function can be called with:(*insert->func)(insert->args);
 	add_node((void*)insert ,&(pool->queue));		//push into pool queue 
-	
-	pthread_mutex_unlock(&(pool->queue_guard_mtx));
-
-	//signal a condition variable which is not working
-	/*
 	int i;
-	for(i =0; i < pool->pool_size; i ++){
-		if(!(*(pool->thread_active + i))){
-			//if thread is not active then wake it to pull from queue
-				*(pool->thread_active + i) = 1;
-				//pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
-				//pthread_cond_broadcast(&spare_cond);
-				break;
+	for (i = 0; i < pool->pool_size; i++){
+		if(*(pool->thread_active + i)){
+			*(pool->thread_active + i) = 1;		//only wake one thread at a time
+			break;
 		}
-	}*/
+	}
+	pthread_mutex_unlock(&(pool->queue_guard_mtx));
 	if(DEBUG_C_THREADPOOL)printf("\033[1;32mfinished pushing\033[0m\n");
 
 	if(block){
 		if(DEBUG_C_THREADPOOL)printf("\nblocking main\n");
-		pthread_cond_broadcast(&spare_cond);
+		pthread_cond_broadcast(&(pool->hold_threads));
 		while(pool->remaining_work ){
 			pthread_cond_wait(&(pool->block_main), &(pool->mtx_spare));
 		}
@@ -164,18 +140,9 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		
 		//now signal all threads which are not active to advance them past the cond_wait() block
 		if(pool->exit_on_empty_queue){
-			pthread_cond_broadcast(&spare_cond);
-			//pthread_mutex_lock(&(pool->queue_guard_mtx));	//this will block until the last thread has gone to sleep
-			//pthread_mutex_unlock(&(pool->queue_guard_mtx));	//unlock mutex again so that other threads can progress
-			//pthread_cond_broadcast(&spare_cond);
-			/*
-			for(i =0; i < pool->pool_size; i ++){
-				*(pool->thread_active + i) = 0;
-				pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
-				}
-				*/
 			//wait for threads to exit if needed
-			while(pool->living_threads);
+			memset(pool->thread_active, 1, pool->pool_size*sizeof(char));	//mark all threads as active to escape while loop
+			while(pool->living_threads)pthread_cond_broadcast(&(pool->hold_threads));
 		}
 				
 	}
@@ -202,29 +169,29 @@ void init_pool(Pool* pool,  char pool_size){
 	//initialise variables for blocking main
 	pthread_mutex_init(&(pool->mtx_spare), NULL);
 	pthread_cond_init(&(pool->block_main), NULL);
-	
-	//initialise threads and cond variables
+	pthread_cond_init(&(pool->hold_threads), NULL);
+	//initialise threads and cond variable
 	pool->threads_pointer = (pthread_t*)malloc(pool->pool_size * (sizeof(pthread_t)));
-	pool->cond_pointer = (pthread_cond_t*)malloc(pool->pool_size * (sizeof(pthread_cond_t)));
 	// init all threads to be marked as not running
 	pool->thread_active = (char*)calloc(pool->pool_size, pool->pool_size * sizeof(char));	
 	
-	pthread_cond_t* cond_p = pool->cond_pointer;
 	pthread_t* thr_p = pool->threads_pointer;
-	//create pthread with pointer to empty function	
+	//create pthread with pointer to pull function	
 	//initialise cond variables for all threads
-	unsigned long i;
+	int i;
 	for(i=0; i < pool->pool_size; i++){		
-		pthread_cond_init(cond_p, NULL);		// init cond variable
-		
 		Args* new_args = (Args*)malloc(sizeof(Args));		//struct for args
-		new_args->thread_id = (int)i;
-		if(DEBUG_C_THREADPOOL)printf("created thread id = %lu\n", i);
+		new_args->thread_id = i;
 		new_args->pool = pool;
+		if(DEBUG_C_THREADPOOL)printf("created thread id = %d\n", i);
+
+		pthread_create(thr_p, NULL, pull_from_queue, (void *)(new_args));	// create threads
+
+		while((pool->hold_threads).__align == 2*i);		
+		// this ensures that threads are created in order and each thread is created properly
+		//(pool->hold_threads).__align is incremented by 2 for every thread created.
 		
-		pthread_create(thr_p, NULL, pull_from_queue, (void *)(new_args));	// create
-		//advance pointers
-		cond_p += sizeof(pthread_cond_t);
+		//advance pointer
 		thr_p += sizeof(pthread_t);
 	}
 		
@@ -233,7 +200,6 @@ void init_pool(Pool* pool,  char pool_size){
 void cleanup(Pool* pool){
 	//free() up memory that has been malloced
 	free(pool->threads_pointer);
-	free(pool->cond_pointer);
 	free(pool->thread_active);
 }
 
