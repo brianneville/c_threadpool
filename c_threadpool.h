@@ -7,8 +7,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <pthread.h>
+#include <string.h>
 #include "c_threadpool.h"
 #include "xor_LL.h"
 
