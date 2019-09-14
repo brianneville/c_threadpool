@@ -136,16 +136,17 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 	pthread_mutex_unlock(&(pool->queue_guard_mtx));
 
 	//signal a condition variable which is not working
+	/*
 	int i;
 	for(i =0; i < pool->pool_size; i ++){
 		if(!(*(pool->thread_active + i))){
 			//if thread is not active then wake it to pull from queue
 				*(pool->thread_active + i) = 1;
 				//pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
-				pthread_cond_broadcast(&spare_cond);
+				//pthread_cond_broadcast(&spare_cond);
 				break;
 		}
-	}
+	}*/
 	if(DEBUG_C_THREADPOOL)printf("\033[1;32mfinished pushing\033[0m\n");
 
 	if(block){
@@ -163,10 +164,10 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		
 		//now signal all threads which are not active to advance them past the cond_wait() block
 		if(pool->exit_on_empty_queue){
-			//pthread_cond_broadcast(&spare_cond);
-			pthread_mutex_lock(&(pool->queue_guard_mtx));	//this will block until the last thread has gone to sleep
-			pthread_mutex_unlock(&(pool->queue_guard_mtx));	//unlock mutex again so that other threads can progress
 			pthread_cond_broadcast(&spare_cond);
+			//pthread_mutex_lock(&(pool->queue_guard_mtx));	//this will block until the last thread has gone to sleep
+			//pthread_mutex_unlock(&(pool->queue_guard_mtx));	//unlock mutex again so that other threads can progress
+			//pthread_cond_broadcast(&spare_cond);
 			/*
 			for(i =0; i < pool->pool_size; i ++){
 				*(pool->thread_active + i) = 0;
