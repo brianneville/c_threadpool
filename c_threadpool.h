@@ -8,10 +8,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <unistd.h>
 #include "c_threadpool.h"
 #include "xor_LL.h"
 
+pthread_cond_t spare_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 
 typedef struct Pool{
 	int pool_size;
@@ -33,6 +34,9 @@ typedef struct Pool{
 	int living_threads;			//used to track if all threads have exited
 	pthread_cond_t block_main; 		//used to block main thread while other threads execute
 	pthread_mutex_t mtx_spare;		//spare, useless mutex for the condition variable (semaphores had reliability issues)
+
+	//trial fixing stuff
+
 	
 }Pool;
 
@@ -75,15 +79,16 @@ void* pull_from_queue(void* arg){
 		}	
 		*/
 		pthread_mutex_lock(&(pool->queue_guard_mtx));
-		if (!pool->queue.tail && !(*(pool->thread_active + thread_id))){
+		if (!pool->queue.tail && !(*act)){
 			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
 				if (!pool->remaining_work && !pool->queue.tail){
 					//if all work from other threads has been done
 					int x = pthread_cond_signal(&(pool->block_main));
 					if(DEBUG_C_THREADPOOL)printf("here %d would signal main\n", thread_id);
-				}
-			pthread_cond_wait((pool->cond_pointer + thread_id * sizeof(pthread_cond_t)),
+				}//(pool->cond_pointer + thread_id * sizeof(pthread_cond_t)
+			pthread_cond_wait(&spare_cond,
 					&(pool->queue_guard_mtx));
+
 				//initial thread that unblocks main will exit properly
 				// this goto stops other threads from sleeping, and brings them to the end of the
 				//while loop when main is calling to kill them
@@ -136,7 +141,8 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		if(!(*(pool->thread_active + i))){
 			//if thread is not active then wake it to pull from queue
 				*(pool->thread_active + i) = 1;
-				pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
+				//pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
+				pthread_cond_broadcast(&spare_cond);
 				break;
 		}
 	}
@@ -144,6 +150,7 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 
 	if(block){
 		if(DEBUG_C_THREADPOOL)printf("\nblocking main\n");
+		pthread_cond_broadcast(&spare_cond);
 		while(pool->remaining_work ){
 			pthread_cond_wait(&(pool->block_main), &(pool->mtx_spare));
 		}
@@ -156,12 +163,16 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		
 		//now signal all threads which are not active to advance them past the cond_wait() block
 		if(pool->exit_on_empty_queue){
+			//pthread_cond_broadcast(&spare_cond);
 			pthread_mutex_lock(&(pool->queue_guard_mtx));	//this will block until the last thread has gone to sleep
 			pthread_mutex_unlock(&(pool->queue_guard_mtx));	//unlock mutex again so that other threads can progress
+			pthread_cond_broadcast(&spare_cond);
+			/*
 			for(i =0; i < pool->pool_size; i ++){
-				*(pool->thread_active + i) = 1;
+				*(pool->thread_active + i) = 0;
 				pthread_cond_signal(pool->cond_pointer + i* sizeof(pthread_cond_t));
 				}
+				*/
 			//wait for threads to exit if needed
 			while(pool->living_threads);
 		}
