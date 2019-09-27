@@ -3,6 +3,7 @@ An implementation of a threadpool, created with C and Pthread
 
 ### Details for use:
 To see debug information from the c_threadpool.h header file, or the xor_LL.h header file, change the debug macros in their respective files: 
+
 **note: currently both of these are set to 0, and debug information will not be shown.**
 **the library must be rebuilt if you wish to see any debug information when using it.**
 ```
