@@ -1,6 +1,3 @@
-#define DEBUG_XOR_LL 0
-#define DEBUG_C_THREADPOOL 1
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>

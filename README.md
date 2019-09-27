@@ -1,15 +1,17 @@
 # C threadpool
-An implementation of a threadpool, using the Pthread library
+An implementation of a threadpool, created with C and Pthread
 
 ### Details for use:
-To see debug information from the c_threadpool.h header file, or the xor_LL.h header file, change the following statements:
+To see debug information from the c_threadpool.h header file, or the xor_LL.h header file, change the debug macros in their respective files: 
+**note: currently both of these are set to 0, and debug information will not be shown.**
+**the library must be rebuilt if you wish to see any debug information when using it.**
 ```
 #define DEBUG_XOR_LL 0
-#define DEBUG_C_THREADPOOL 1
+#define DEBUG_C_THREADPOOL 0
 ```
 
 The threadpool is a pool of threads to push functions into. 
-The queue is a queue made using my own XOR linked list. it is used to buffer functions before they enter the pool
+The queue is a queue made using my own XOR linked list. It is used to buffer functions before they enter the pool.
 
 See the example_threadpool.c file for a typical example of how to use the threadpool.
 Standard protocol would be:
@@ -24,8 +26,10 @@ Standard protocol would be:
 ### Instructions 
 Compile example with:
 ```
-cc example_threadpool.c -o run -lpthread
+cc -Wall example_threadpool.c -o run -L. -ltheadpool -lpthread
 ```
+or see [**compilation instructions**](https://github.com/brianneville/c_threadpool/blob/master/compilation.md) for more details 
+
 and run using:
 ```
 ./run
