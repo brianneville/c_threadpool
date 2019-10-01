@@ -15,17 +15,23 @@ void add_node(void* data, xLinkedList* list){
 	new_xNode->address_ptr = prev_addr;    
 	
 	if(!list->tail){
-		if(DEBUG_XOR_LL)printf("adding first xNode\n");
+		#if DEBUG_XOR_LL 
+			printf("adding first xNode\n");
+		#endif
 		new_xNode->address_ptr = (unsigned long)NULL;
 		list->tail = new_xNode;
 		list->head = new_xNode;
 	}
 	else if(!list->tail->address_ptr){
-		if(DEBUG_XOR_LL)printf("adding second xNode\n");     
+		#if DEBUG_XOR_LL 
+			printf("adding second xNode\n");     
+		#endif
 		list->tail->address_ptr = next_addr; 
 	}
 	else{
-		if(DEBUG_XOR_LL)printf("adding a new xNode\n");
+		#if DEBUG_XOR_LL 
+			printf("adding a new xNode\n");
+		#endif
 		list->tail->address_ptr = next_addr ^ list->tail->address_ptr;
 	}
 	
@@ -52,7 +58,9 @@ void delete_head_func(xLinkedList* list){
 	xNode* curr = list->head;
 	//xNode* next = NULL;
 	xNode* prev = (xNode*)((unsigned long)(curr->address_ptr));
-	if(DEBUG_XOR_LL)printf("list contains more than one xNode. deleting head\n");
+	#if DEBUG_XOR_LL 
+		printf("list contains more than one xNode. deleting head\n");
+	#endif
 	//now go back to the previous node. set the prev node's address pointer to point only back to the node before it;
 	//therefore the head node can now be popped from the list
 	xNode* before_prev = (xNode* )((unsigned long)curr ^ (unsigned long)prev->address_ptr); 
@@ -66,7 +74,9 @@ void delete_tail_func(xLinkedList* list){
 	xNode* curr = list->tail;
 	xNode* next;
 	xNode* prev = NULL;
-	if(DEBUG_XOR_LL)printf("list contains more than one xNode. deleting tail\n");
+	#if DEBUG_XOR_LL 
+		printf("list contains more than one xNode. deleting tail\n");
+	#endif
 	next = (xNode*)((unsigned long)prev ^ (unsigned long)curr->address_ptr);
 	//go to next xNode
 	//set address_ptr at next xNode to point to the address of the next xNode it needs to go to
@@ -86,10 +96,14 @@ void delete_end(xLinkedList* list, int delete_head){
 	// note this is done from the perspecive of traversing the list in reverse as before
 	if (!list->tail){
 		//list empty, head and tail are NULL
-		if(DEBUG_XOR_LL)printf("list empty. unable to delete\n");
+		#if DEBUG_XOR_LL 
+			printf("list empty. unable to delete\n");
+		#endif
 	}	
 	else if(!list->tail->address_ptr){	
-		if(DEBUG_XOR_LL)printf("list contains only one xNode. This is being deleted\n");     
+		#if DEBUG_XOR_LL 
+			printf("list contains only one xNode. This is being deleted\n");     
+		#endif
 		list->tail = NULL;
 		free(list->tail);
 		list->head = NULL;

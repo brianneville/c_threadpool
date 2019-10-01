@@ -11,7 +11,9 @@ void* pull_from_queue(void* arg){
 
 		pthread_mutex_lock(&(pool->queue_guard_mtx));
 		while (!pool->queue.tail && !(*act)){
-			if(DEBUG_C_THREADPOOL)printf("thread %d is sleeping\n",thread_id);
+			#if DEBUG_C_THREADPOOL
+ 				printf("thread %d is sleeping\n",thread_id);
+			#endif
 				if (!pool->remaining_work && !pool->queue.tail){
 					//if all work from other threads has been done
 					pthread_cond_signal(&(pool->block_main));
@@ -28,9 +30,13 @@ void* pull_from_queue(void* arg){
 			q_obj = (QueueObj*)queue_item->data;
 			function_ptr f = q_obj->func;
 			void* args = q_obj->args;
-			if(DEBUG_C_THREADPOOL)printf("thread %d is working\n",thread_id);
+			#if DEBUG_C_THREADPOOL
+				printf("thread %d is working\n",thread_id);
+			#endif
 			(*f)(args);
-			if(DEBUG_C_THREADPOOL)printf("thread %d has finished working\n",thread_id);
+			#if DEBUG_C_THREADPOOL
+				printf("thread %d has finished working\n",thread_id);
+			#endif
 			free(q_obj);
 			pool->remaining_work--;
 			*act = 0;
@@ -40,7 +46,9 @@ void* pull_from_queue(void* arg){
 
 	}
 	pool->living_threads--;
-	if(DEBUG_C_THREADPOOL)printf("\033[1;31mExiting thread %d \033[0m\n",thread_id  );
+	#if DEBUG_C_THREADPOOL
+		printf("\033[1;31mExiting thread %d \033[0m\n",thread_id  );
+	#endif
 	pthread_exit(NULL);
 	
 
@@ -66,18 +74,22 @@ void push_to_queue(Pool* pool, function_ptr f, void* args, char block){
 		}
 	}
 	pthread_mutex_unlock(&(pool->queue_guard_mtx));
-	if(DEBUG_C_THREADPOOL)printf("\033[1;32mfinished pushing\033[0m\n");
-
+	#if DEBUG_C_THREADPOOL
+		printf("\033[1;32mfinished pushing\033[0m\n");
+	#endif
 	if(block){
-		if(DEBUG_C_THREADPOOL)printf("\nblocking main\n");
+		#if DEBUG_C_THREADPOOL
+			printf("\nblocking main\n");
+		#endif
 		pthread_cond_broadcast(&(pool->hold_threads));
 		while(pool->remaining_work ){
 			pthread_cond_wait(&(pool->block_main), &(pool->mtx_spare));
 		}
 		
 		pthread_mutex_unlock(&(pool->mtx_spare));
-		if(DEBUG_C_THREADPOOL)printf("unblocking main\n\n");
-		
+		#if DEBUG_C_THREADPOOL
+			printf("unblocking main\n\n");
+		#endif
 		pool->updating_queue = 0;
 		pool->living_threads = pool->pool_size;
 		
@@ -105,7 +117,7 @@ void init_pool(Pool* pool,  char pool_size){
 	
 	//initialse bool to mark whether or not the threads should terminate after the queue is empty
 	pool->updating_queue = 0;
-	
+	 
 	//initialise the mutex that the main thread will use to guard items being pulled from this queue
 	pthread_mutex_init(&(pool->queue_guard_mtx), NULL);
 	
@@ -126,7 +138,9 @@ void init_pool(Pool* pool,  char pool_size){
 		Args* new_args = (Args*)malloc(sizeof(Args));		//struct for args
 		new_args->thread_id = i;
 		new_args->pool = pool;
-		if(DEBUG_C_THREADPOOL)printf("created thread id = %d\n", i);
+		#if DEBUG_C_THREADPOOL 
+			printf("created thread id = %d\n", i);
+		#endif
 
 		pthread_create(thr_p, NULL, pull_from_queue, (void *)(new_args));	// create threads
 
